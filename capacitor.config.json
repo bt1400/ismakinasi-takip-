@@ -1,0 +1,8 @@
+{
+  "appId": "com.ismakinasi.takip",
+  "appName": "İş Makinası Takip",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false
+  }
+}

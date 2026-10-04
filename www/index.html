@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta name="theme-color" content="#1f2937">
+<title>İş Makinası Takip</title>
+<style>
+:root{--a:#f59e0b;--d:#1f2937;--bg:#f3f4f6;--g:#16a34a;--r:#dc2626}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;font-family:system-ui,Roboto,sans-serif;background:var(--bg);color:var(--d);padding-bottom:80px}
+header{position:sticky;top:0;background:var(--d);color:#fff;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;z-index:5}
+header h1{font-size:18px;margin:0}
+header select{width:auto;margin:0;padding:6px;font-size:14px;max-width:150px}
+main{padding:12px}
+.card{background:#fff;border-radius:12px;padding:12px;margin-bottom:10px;box-shadow:0 1px 3px #0002}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.grid .card{margin:0}
+.k{font-size:12px;color:#6b7280}.v{font-size:20px;font-weight:700}
+.big{font-size:32px;font-weight:800}
+h2{font-size:15px;margin:16px 0 8px}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:#fff;border-top:1px solid #ddd;z-index:5}
+nav button{flex:1;border:0;background:none;padding:6px 0;font-size:11px;color:#6b7280}
+nav button.on{color:var(--a);font-weight:700}
+nav button span{display:block;font-size:20px}
+#fab{position:fixed;right:16px;bottom:80px;width:56px;height:56px;border-radius:50%;background:var(--a);border:0;font-size:30px;color:#fff;box-shadow:0 3px 8px #0004;z-index:6}
+.modal{position:fixed;inset:0;background:#0007;display:none;align-items:flex-end;z-index:10}
+.modal.on{display:flex}
+.sheet{background:#fff;width:100%;max-height:92vh;overflow:auto;border-radius:16px 16px 0 0;padding:16px}
+.sheet h3{margin:0 0 4px}
+input,select{width:100%;padding:11px;font-size:16px;border:1px solid #d1d5db;border-radius:8px;margin-top:4px;background:#fff}
+label{display:block;font-size:13px;margin-top:10px;color:#374151}
+.btns{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
+.btn{padding:12px 16px;border:0;border-radius:8px;font-size:15px;font-weight:600;background:var(--a);color:#fff}
+.btn.s{background:#e5e7eb;color:var(--d)}.btn.d{background:var(--r)}.btn.g{background:var(--g)}
+.btn.f{flex:1}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:7px 5px;text-align:right;border-bottom:1px solid #eee;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{color:#6b7280;font-weight:600;font-size:12px}
+.sc{overflow-x:auto}
+.row{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+.sub{font-size:12px;color:#6b7280;margin-top:2px}
+.pos{color:var(--g)}.neg{color:var(--r)}
+.bar{height:6px;background:#e5e7eb;border-radius:3px;margin-top:6px}
+.bar i{display:block;height:100%;background:var(--a);border-radius:3px}
+.empty{text-align:center;color:#9ca3af;padding:30px 10px}
+.tot{text-align:right;font-weight:700;margin:4px 2px 12px}
+tr.c{cursor:pointer}
+.btn:disabled{opacity:.4}
+.tag{display:inline-block;font-size:11px;padding:1px 6px;border-radius:6px;background:#e5e7eb;color:#374151;margin-left:4px;font-weight:600}
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Özet</h1>
+  <select id="period" onchange="render()"></select>
+</header>
+<main id="view"></main>
+<button id="fab" onclick="fabClick()">+</button>
+<nav id="nav"></nav>
+<div class="modal" id="modal" onclick="if(event.target===this)closeModal()"><div class="sheet" id="sheet"></div></div>
+<input type="file" id="file" accept=".json" style="display:none" onchange="restore(this)">
+
+<script>
+const KEY='ismakinasi_v1';
+const MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+const TUR={makina:'İş makinası (saat)',kamyon:'Kamyon (sefer)',arac:'Araç (yalnızca yakıt)'};
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const emptyDb=()=>({machines:[],customers:[],jobs:[],payments:[],fuelIn:[],fuelOut:[],expenses:[],expCats:[]});
+/* Excel'deki listelerle başlangıç verisi (boş kurulumda) */
+function seed(){
+  const d=emptyDb();
+  d.machines=[['20 TON','makina'],['30 TON','makina'],['HMK','makina'],['KOBELCO','makina'],['ALİ KAMYON','kamyon'],['M. KAMYON 1','kamyon'],['M. KAMYON 2','kamyon'],['TIR','arac'],['AUDİ','arac'],['MAZDA','arac'],['WOLSWAGEN','arac'],['CLİO','arac']].map(([name,tur])=>({id:uid(),name,tur}));
+  d.customers=['BT','ST','YALÇIN','KIVANÇ TOKMAK'].map(name=>({id:uid(),name,phone:'',note:''}));
+  d.expCats=['İLHAN','FATİH','EMİNE','YALÇIN','ÖMER','SEVGİ','KREDİ KARTI','FATURALAR','SANAYİ','KAMYON','YEMEK'];
+  return d;
+}
+let db=load();
+function load(){try{const raw=localStorage.getItem(KEY);if(raw)return Object.assign(emptyDb(),JSON.parse(raw))}catch(e){}return seed()}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(db))}catch(e){alert('Kayıt yapılamadı. Tarayıcı depolaması kapalı olabilir.')}}
+try{if(!localStorage.getItem(KEY))save()}catch(e){}
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt=n=>(+n||0).toLocaleString('tr-TR',{maximumFractionDigits:2});
+const TL=n=>fmt(n)+' ₺';
+const r2=n=>Math.round((+n||0)*100)/100;
+const today=()=>new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
+const fd=d=>d?d.split('-').reverse().join('.'):'';
+const sum=(a,k)=>a.reduce((s,x)=>s+(+x[k]||0),0);
+const nm=(arr,id)=>{const x=arr.find(y=>y.id===id);return x?x.name:'(silinmiş)'};
+const byDate=(a,b)=>a.date<b.date?1:a.date>b.date?-1:0;
+const mach=id=>db.machines.find(m=>m.id===id);
+const isSefer=id=>{const m=mach(id);return !!m&&m.tur==='kamyon'};
+
+/* ---------- Saat / sefer ---------- */
+function parseQty(s){
+  s=String(s).trim().replace(',','.');
+  if(s==='')return null;
+  if(s.includes(':')){const p=s.split(':');const h=parseFloat(p[0]),m=parseFloat(p[1]||'0');if(isNaN(h)||isNaN(m))return null;return Math.round((h+m/60)*10000)/10000}
+  const v=parseFloat(s);return isNaN(v)?null:v;
+}
+function hm(h){h=+h||0;let H=Math.floor(h+1e-9),M=Math.round((h-H)*60);if(M===60){H++;M=0}return H+':'+String(M).padStart(2,'0')}
+const qtyEdit=(h,mid)=>h==null?'':(isSefer(mid)?String(h):hm(h));
+const fmtQty=(h,mid)=>h==null||h===''?'':(isSefer(mid)?fmt(h)+' sefer':hm(h)+' sa');
+function qtySplit(jobs){let sa=0,se=0;jobs.forEach(j=>{if(isSefer(j.machineId))se+=+j.hours||0;else sa+=+j.hours||0});return{sa,se}}
+const qtyText=jobs=>{const q=qtySplit(jobs);return (q.sa?hm(q.sa)+' saat':'')+(q.sa&&q.se?' · ':'')+(q.se?fmt(q.se)+' sefer':'')||'0 saat'};
+
+/* ---------- Dönem ---------- */
+function initPeriod(){
+  const y=new Date().getFullYear();
+  let h=`<option value="all">Tümü</option><option value="month">Bu ay</option><option value="last">Geçen ay</option><option value="year">Bu yıl (${y})</option><optgroup label="Aylar ${y}">`;
+  MONTHS.forEach((n,i)=>{h+=`<option value="m:${y}-${String(i+1).padStart(2,'0')}">${n}</option>`});
+  h+='</optgroup>';
+  $('#period').innerHTML=h;
+}
+function range(){
+  const n=new Date(),y=n.getFullYear(),m=n.getMonth(),p=$('#period').value||'all',pad=x=>String(x).padStart(2,'0');
+  if(p.indexOf('m:')===0){const s=p.slice(2);return[s+'-01',s+'-31']}
+  if(p==='month')return[`${y}-${pad(m+1)}-01`,`${y}-${pad(m+1)}-31`];
+  if(p==='last'){const d=new Date(y,m-1,1);const s=`${d.getFullYear()}-${pad(d.getMonth()+1)}`;return[s+'-01',s+'-31']}
+  if(p==='year')return[`${y}-01-01`,`${y}-12-31`];
+  return['0000-01-01','9999-12-31'];
+}
+const inP=r=>{if(!r.date)return range()[0]==='0000-01-01';const[a,b]=range();return r.date>=a&&r.date<=b};
+
+/* ---------- Hesaplamalar ---------- */
+function avgPrice(){
+  const l=db.fuelIn.filter(x=>+x.price>0);
+  const lit=sum(l,'liters');
+  return lit?sum(l,'total')/lit:0;
+}
+const isDepo=x=>x.src!=='petrol';
+function stock(){return sum(db.fuelIn,'liters')-sum(db.fuelOut.filter(isDepo),'liters')}
+const outCost=r=>(+r.liters||0)*(+r.price>0?+r.price:avgPrice());
+const petrolPaid=r=>(+r.price>0?(+r.liters||0)*(+r.price):0);
+function machineStats(m){
+  const jobs=db.jobs.filter(j=>j.machineId===m.id&&inP(j));
+  const fo=db.fuelOut.filter(f=>f.machineId===m.id&&inP(f));
+  const ex=db.expenses.filter(e=>e.machineId===m.id&&inP(e));
+  const q=sum(jobs,'hours'),fuel=sum(fo,'liters'),rev=sum(jobs,'total');
+  const fcost=fo.reduce((s,r)=>s+outCost(r),0),exp=sum(ex,'amount');
+  return{qty:q,fuel,per:q?fuel/q:0,rev,fcost,exp,profit:rev-fcost-exp,jobs:jobs.length};
+}
+function custTotals(id){
+  const jobs=db.jobs.filter(j=>j.customerId===id);
+  const jt=sum(jobs,'total'),got=sum(jobs,'received')+sum(db.payments.filter(p=>p.customerId===id),'amount');
+  return{jt,got,bal:jt-got};
+}
+const custBalance=id=>custTotals(id).bal;
+const expCatList=()=>{
+  const s=new Set(db.expCats);db.expenses.forEach(e=>{if(e.cat)s.add(e.cat)});
+  return[...s].sort((a,b)=>a.localeCompare(b,'tr'));
+};
+
+/* ---------- Form şemaları ---------- */
+const jobMachines=()=>db.machines.filter(m=>m.tur!=='arac').map(x=>[x.id,x.name]);
+const allMachines=()=>db.machines.map(x=>[x.id,x.name]);
+const needM='Önce Makina sekmesinden makina/araç ekleyin.';
+const S={
+  job:{c:'jobs',t:'İş kaydı',f:[
+    {k:'date',l:'Tarih',t:'date',d:today,r:1},
+    {k:'customerId',l:'Adı soyadı (müşteri)',t:'sel',o:()=>db.customers.map(x=>[x.id,x.name]),r:1,need:'Önce Müşteri sekmesinden müşteri ekleyin.'},
+    {k:'machineId',l:'Makina',t:'sel',o:jobMachines,r:1,need:needM},
+    {k:'hours',l:'Saat-Sefer',t:'qty',h:'Saat için 3:30 gibi yazın, sefer/adet için 5 gibi yazın.'},
+    {k:'rate',l:'Saat ücreti (₺) – sefer ise sefer ücreti',t:'num'},
+    {k:'total',l:'Borç / toplam tutar (₺) – boşsa miktar × ücret',t:'num'},
+    {k:'received',l:'Alınan (₺)',t:'num'},
+    {k:'place',l:'Açıklama',t:'text'}
+  ],pre:o=>{
+    if(o.total==null)o.total=r2((o.hours||0)*(o.rate||0));
+    if(o.received==null)o.received=0;
+  }},
+  customer:{c:'customers',t:'Müşteri',f:[
+    {k:'name',l:'Ad / firma',t:'text',r:1},
+    {k:'phone',l:'Telefon',t:'text'},
+    {k:'note',l:'Açıklama',t:'text'}
+  ]},
+  machine:{c:'machines',t:'Makina / araç',f:[
+    {k:'name',l:'Adı (örn: 20 TON, KOBELCO)',t:'text',r:1},
+    {k:'tur',l:'Türü',t:'sel',o:()=>Object.entries(TUR),r:1,d:()=>'makina'}
+  ]},
+  fuelIn:{c:'fuelIn',t:'Depoya giren mazot',f:[
+    {k:'date',l:'Tarih',t:'date',d:today,r:1},
+    {k:'liters',l:'Litre',t:'num',r:1},
+    {k:'price',l:'Birim fiyat (₺/litre) – isteğe bağlı',t:'num'},
+    {k:'supplier',l:'Tedarikçi / açıklama',t:'text'}
+  ],pre:o=>{o.total=r2((o.liters||0)*(o.price||0))}},
+  fuelOut:{c:'fuelOut',t:'Depodan alınan mazot',f:[
+    {k:'date',l:'Tarih',t:'date',d:today,r:1},
+    {k:'machineId',l:'Makina / araç (yakıt gideri)',t:'sel',o:allMachines,r:1,need:needM},
+    {k:'liters',l:'Litre',t:'num',r:1},
+    {k:'note',l:'Açıklama',t:'text'}
+  ],pre:o=>{o.src='depo'}},
+  petrol:{c:'fuelOut',t:'Petrolden alınan mazot',f:[
+    {k:'date',l:'Tarih',t:'date',d:today,r:1},
+    {k:'machineId',l:'Makina / araç (yakıt gideri)',t:'sel',o:allMachines,r:1,need:needM},
+    {k:'liters',l:'Litre',t:'num',r:1},
+    {k:'price',l:'Birim fiyat (₺/litre) – isteğe bağlı',t:'num'},
+    {k:'note',l:'Açıklama',t:'text'}
+  ],pre:o=>{o.src='petrol'}},
+  expense:{c:'expenses',t:'Gider',f:[
+    {k:'date',l:'Tarih',t:'date',d:today,r:1},
+    {k:'cat',l:'Adı soyadı / gider kalemi',t:'text',r:1,list:expCatList},
+    {k:'amount',l:'Tutar (₺)',t:'num',r:1},
+    {k:'machineId',l:'Makina (isteğe bağlı)',t:'sel',o:allMachines,blank:1},
+    {k:'note',l:'Açıklama',t:'text'}
+  ],pre:o=>{
+    o.cat=o.cat.toLocaleUpperCase('tr');
+    if(db.expCats.indexOf(o.cat)<0)db.expCats.push(o.cat);
+  }},
+  payment:{c:'payments',t:'Tahsilat',f:[
+    {k:'date',l:'Tarih',t:'date',d:today,r:1},
+    {k:'customerId',l:'Müşteri',t:'sel',o:()=>db.customers.map(x=>[x.id,x.name]),r:1,need:'Önce müşteri ekleyin.'},
+    {k:'amount',l:'Alınan tutar (₺)',t:'num',r:1},
+    {k:'note',l:'Açıklama',t:'text'}
+  ]}
+};
+let cur=null;
+function showModal(h){$('#sheet').innerHTML=h;$('#modal').classList.add('on')}
+function closeModal(){$('#modal').classList.remove('on')}
+
+function openForm(type,id,preset){
+  const s=S[type];
+  for(const f of s.f){if(f.t==='sel'&&f.r&&!f.o().length){alert(f.need);return}}
+  const rec=id?db[s.c].find(x=>x.id===id):Object.assign({},preset||{});
+  if(!rec){return}
+  cur={type,id};
+  let h=`<h3>${id?'Düzenle':'Yeni'} · ${s.t}</h3>`;
+  s.f.forEach(f=>{
+    let v=rec[f.k];
+    if(v==null&&f.d&&!id)v=f.d();
+    if(f.t==='qty')v=v==null?'':qtyEdit(v,rec.machineId||(db.machines.filter(m=>m.tur!=='arac')[0]||{}).id);
+    if(v==null)v='';
+    h+=`<label>${f.l}</label>`;
+    if(f.t==='sel'){
+      h+=`<select id="f_${f.k}">`+(f.blank?'<option value="">— seçilmedi —</option>':'')+
+        f.o().map(([a,b])=>`<option value="${a}" ${a===v?'selected':''}>${esc(b)}</option>`).join('')+`</select>`;
+    }else if(f.t==='date')h+=`<input type="date" id="f_${f.k}" value="${v}">`;
+    else if(f.t==='num')h+=`<input type="text" inputmode="decimal" id="f_${f.k}" value="${v}">`;
+    else if(f.t==='qty')h+=`<input type="text" id="f_${f.k}" value="${esc(v)}" placeholder="3:30  veya  5">`;
+    else if(f.list)h+=`<input type="text" id="f_${f.k}" value="${esc(v)}" list="dl_${f.k}"><datalist id="dl_${f.k}">${f.list().map(x=>`<option value="${esc(x)}">`).join('')}</datalist>`;
+    else h+=`<input type="text" id="f_${f.k}" value="${esc(v)}">`;
+    if(f.h)h+=`<div class="sub">${f.h}</div>`;
+  });
+  h+=`<div class="btns"><button class="btn f" onclick="saveForm()">Kaydet</button><button class="btn s" onclick="closeModal()">İptal</button>`+
+     (id?`<button class="btn d" onclick="delRec()">Sil</button>`:'')+`</div>`;
+  showModal(h);
+  if(type==='job')wireJob();
+}
+/* Aynı müşteri+makina için son ücreti otomatik getir */
+function wireJob(){
+  const c=$('#f_customerId'),m=$('#f_machineId'),r=$('#f_rate');
+  if(!c||!m||!r)return;
+  const auto=()=>{
+    if(r.value.trim()!==''&&r.dataset.auto!=='1')return;
+    const withRate=db.jobs.filter(j=>+j.rate>0&&j.machineId===m.value);
+    const hit=withRate.filter(j=>j.customerId===c.value).sort(byDate)[0]||withRate.sort(byDate)[0];
+    if(hit){r.value=hit.rate;r.dataset.auto='1'}
+  };
+  c.onchange=auto;m.onchange=auto;r.oninput=()=>{r.dataset.auto='0'};
+  if(!cur.id)auto();
+}
+function saveForm(){
+  const s=S[cur.type],o={};
+  for(const f of s.f){
+    let v=$('#f_'+f.k).value.trim();
+    if(f.t==='num'){v=v===''?null:parseFloat(v.replace(',','.'));if(v!=null&&isNaN(v))v=null}
+    if(f.t==='qty'){v=parseQty(v)}
+    if(f.r&&(v===''||v==null)){alert('"'+f.l.split(' – ')[0]+'" alanı gerekli');return}
+    o[f.k]=v;
+  }
+  if(s.pre)s.pre(o);
+  if(cur.id){Object.assign(db[s.c].find(x=>x.id===cur.id),o)}
+  else db[s.c].push(Object.assign({id:uid()},o));
+  save();closeModal();render();
+}
+function delRec(){
+  const s=S[cur.type];
+  let msg='Bu kayıt silinsin mi?';
+  if(cur.type==='customer'&&db.jobs.some(j=>j.customerId===cur.id))msg='Bu müşterinin iş kayıtları var; kayıtlarda "(silinmiş)" görünür. Yine de silinsin mi?';
+  if(cur.type==='machine'&&(db.jobs.some(j=>j.machineId===cur.id)||db.fuelOut.some(j=>j.machineId===cur.id)))msg='Bu makinanın kayıtları var; kayıtlarda "(silinmiş)" görünür. Yine de silinsin mi?';
+  if(!confirm(msg))return;
+  db[s.c]=db[s.c].filter(x=>x.id!==cur.id);
+  save();closeModal();render();
+}
+
+/* ---------- Görünümler ---------- */
+let tab='ozet';
+const TABS=[['ozet','Özet','📊'],['isler','İşler','🚜'],['mazot','Mazot','⛽'],['musteri','Müşteri','👥'],['makina','Makina','🔧'],['gider','Gider','💸']];
+const TITLES={ozet:'Özet ve Analiz',isler:'Makina Çalışma Kayıtları',mazot:'Yakıt / Mazot',musteri:'Müşteriler / Cari',makina:'Makina ve Araçlar',gider:'Giderler'};
+const item=(click,left,right)=>`<div class="card" onclick="${click}"><div class="row"><div>${left}</div><div style="text-align:right">${right}</div></div></div>`;
+const empty=t=>`<div class="empty">${t}</div>`;
+const unit=m=>m.tur==='kamyon'?'sefer':'saat';
+
+function vOzet(){
+  const jobs=db.jobs.filter(inP),pay=db.payments.filter(inP),fin=db.fuelIn.filter(inP),fo=db.fuelOut.filter(inP),exp=db.expenses.filter(inP);
+  const borc=sum(jobs,'total'),alinan=sum(jobs,'received')+sum(pay,'amount');
+  const gider=sum(exp,'amount'),mazotAlim=sum(fin,'total')+fo.reduce((s,r)=>s+petrolPaid(r),0);
+  const net=borc-gider-mazotAlim,kasa=alinan-gider-mazotAlim;
+  const kalanGenel=db.customers.reduce((s,c)=>s+custBalance(c.id),0);
+  let h=`<div class="grid">
+    <div class="card"><div class="k">Toplam iş (borç)</div><div class="v">${TL(borc)}</div></div>
+    <div class="card"><div class="k">Alınan</div><div class="v pos">${TL(alinan)}</div></div>
+    <div class="card"><div class="k">Müşterilerde kalan (tüm zamanlar)</div><div class="v ${kalanGenel>0?'neg':''}">${TL(kalanGenel)}</div></div>
+    <div class="card"><div class="k">Depoda mazot</div><div class="v">${fmt(stock())} L</div></div>
+    <div class="card"><div class="k">Giderler</div><div class="v neg">${TL(gider)}</div></div>
+    <div class="card"><div class="k">Mazot alımı (fiyatı girilenler)</div><div class="v neg">${TL(mazotAlim)}</div></div>
+    <div class="card"><div class="k">Net kâr (iş − gider − mazot)</div><div class="v ${net>=0?'pos':'neg'}">${TL(net)}</div></div>
+    <div class="card"><div class="k">Kasa (alınan − gider − mazot)</div><div class="v ${kasa>=0?'pos':'neg'}">${TL(kasa)}</div></div>
+  </div>`;
+
+  h+=`<h2>📄 Raporlar (PDF / Excel)</h2><div class="card"><div class="btns" style="margin-top:0">
+    <button class="btn f" onclick="openReport('musteri','borclu')">Borçlu müşteriler</button>
+    <button class="btn f" onclick="openReport('gider')">Gider raporu</button>
+    <button class="btn f" onclick="openReport('makina')">Makina raporu</button></div>
+    <div class="sub" style="margin-top:8px">Kişiye, gider kalemine veya makinaya özel rapor seçip PDF ya da Excel olarak indirebilir veya paylaşabilirsiniz.</div></div>`;
+  h+=`<h2>Makina analizi</h2><div class="card sc"><table><tr><th>Makina</th><th>Çalışma</th><th>Mazot L</th><th>L/birim</th><th>Gelir</th><th>Mazot ₺</th><th>Kâr</th></tr>`;
+  const ms=db.machines.filter(m=>m.tur!=='arac');
+  if(!ms.length)h+=`<tr><td colspan="7" style="text-align:center;color:#9ca3af">Makina eklenmedi</td></tr>`;
+  ms.forEach(m=>{const s=machineStats(m);
+    h+=`<tr><td>${esc(m.name)}</td><td>${m.tur==='kamyon'?fmt(s.qty)+' sefer':hm(s.qty)+' sa'}</td><td>${fmt(s.fuel)}</td><td><b>${fmt(s.per)}</b></td><td>${fmt(s.rev)}</td><td>${fmt(s.fcost)}</td><td class="${s.profit>=0?'pos':'neg'}">${fmt(s.profit)}</td></tr>`});
+  h+=`</table><div class="sub">L/birim: iş makinalarında litre/saat, kamyonlarda litre/sefer. Mazot ₺ = depo ortalama alış fiyatı (${TL(avgPrice())}/L) veya petrol alımında girilen fiyat. Kâr = gelir − mazot − makinaya bağlı giderler.</div></div>`;
+
+  const cs=db.customers.map(c=>{
+    const cj=jobs.filter(j=>j.customerId===c.id),t=custTotals(c.id);
+    return{c,rev:sum(cj,'total'),n:cj.length,q:qtyText(cj),bal:t.bal};
+  }).sort((a,b)=>b.rev-a.rev);
+  const mx=cs.length?Math.max(cs[0].rev,1):1,tot=cs.reduce((s,x)=>s+x.rev,0);
+  h+=`<h2>Müşteri analizi</h2>`;
+  if(!cs.length)h+=empty('Henüz müşteri yok');
+  cs.forEach(x=>{
+    h+=`<div class="card"><div class="row"><b>${esc(x.c.name)}</b><b>${TL(x.rev)}</b></div>
+    <div class="bar"><i style="width:${x.rev/mx*100}%"></i></div>
+    <div class="sub">${x.n} iş · ${x.q} · pay %${tot?fmt(x.rev/tot*100):0} · ortalama iş ${TL(x.n?x.rev/x.n:0)}</div>
+    <div class="sub">Kalan (tüm zamanlar): <b class="${x.bal>0?'neg':'pos'}">${x.bal>0?TL(x.bal)+' borçlu':x.bal<0?TL(-x.bal)+' alacaklı':'kapalı'}</b></div></div>`;
+  });
+
+  const byCat={};exp.forEach(e=>{byCat[e.cat]=(byCat[e.cat]||0)+(+e.amount||0)});
+  const cats=Object.entries(byCat).sort((a,b)=>b[1]-a[1]);
+  h+=`<h2>Gider dağılımı (kişi / kalem)</h2>`;
+  if(!cats.length)h+=empty('Bu dönemde gider yok');
+  else{const cm=cats[0][1]||1;h+=`<div class="card">`+cats.map(([k,v])=>`<div class="row" style="margin-top:8px"><span>${esc(k)}</span><b>${TL(v)}</b></div><div class="bar"><i style="width:${v/cm*100}%"></i></div>`).join('')+`</div>`}
+
+  h+=`<h2>Yedek ve dışa aktar</h2><div class="card"><div class="btns" style="margin-top:0">
+    <button class="btn f" onclick="backup()">💾 Yedek indir</button>
+    <button class="btn f s" onclick="$('#file').click()">📂 Yedek yükle</button>
+    <button class="btn f g" onclick="csv('jobs')">Excel: İşler</button>
+    <button class="btn f g" onclick="csv('fuel')">Excel: Mazot</button></div>
+    <div class="sub" style="margin-top:8px">Veriler yalnızca bu telefonun tarayıcısında saklanır. Telefonu değiştirmeden veya tarayıcı verisini silmeden önce yedek alın.</div></div>`;
+  return h;
+}
+
+function vIsler(){
+  const l=db.jobs.filter(inP).sort(byDate);
+  if(!l.length)return empty('Bu dönemde iş kaydı yok.<br>Sağ alttaki + ile ekleyin.');
+  const kalan=sum(l,'total')-sum(l,'received');
+  let h=`<div class="tot">${l.length} iş · ${qtyText(l)}<br>Borç ${TL(sum(l,'total'))} · Alınan ${TL(sum(l,'received'))} · Kalan ${TL(kalan)}</div>`;
+  l.forEach(j=>{
+    const k=(+j.total||0)-(+j.received||0);
+    h+=item(`openForm('job','${j.id}')`,
+    `<b>${esc(nm(db.customers,j.customerId))}</b><div class="sub">${fd(j.date)} · ${esc(nm(db.machines,j.machineId))}${j.place?' · '+esc(j.place):''}</div>`,
+    `<b>${TL(j.total)}</b><div class="sub">${fmtQty(j.hours,j.machineId)}${j.rate?' × '+fmt(j.rate):''}</div>${j.received?`<div class="sub">alınan ${TL(j.received)} · kalan <b class="${k>0?'neg':'pos'}">${TL(k)}</b></div>`:''}`)});
+  return h;
+}
+
+function vMazot(){
+  const st=stock(),fin=db.fuelIn.filter(inP),fo=db.fuelOut.filter(inP);
+  const depo=fo.filter(isDepo),pet=fo.filter(x=>!isDepo(x));
+  let h=`<div class="card" style="text-align:center"><div class="k">Depodaki mazot (şu an)</div>
+    <div class="big ${st<0?'neg':''}">${fmt(st)} L</div>
+    <div class="sub">Depoya giren ${fmt(sum(db.fuelIn,'liters'))} L − depodan alınan ${fmt(sum(db.fuelOut.filter(isDepo),'liters'))} L${avgPrice()?' · ortalama alış '+TL(avgPrice())+'/L':''}</div>
+    ${st<0?'<div class="sub neg">Stok eksi görünüyor: depoya giren mazot kaydı eksik olabilir.</div>':''}</div>
+    <div class="btns" style="margin:0 0 12px"><button class="btn f g" onclick="openForm('fuelIn')">+ Depoya giren</button><button class="btn f" onclick="openForm('fuelOut')">− Depodan alınan</button><button class="btn f s" onclick="openForm('petrol')">⛽ Petrolden alınan</button></div>
+    <div class="tot">Bu dönem: depoya giren ${fmt(sum(fin,'liters'))} L · depodan ${fmt(sum(depo,'liters'))} L · petrolden ${fmt(sum(pet,'liters'))} L</div>`;
+
+  const rows=db.machines.map(m=>{
+    const a=sum(depo.filter(x=>x.machineId===m.id),'liters'),b=sum(pet.filter(x=>x.machineId===m.id),'liters');
+    return{m,a,b};
+  }).filter(x=>x.a||x.b);
+  if(rows.length){
+    h+=`<h2>Yakıt gideri toplam (litre)</h2><div class="card sc"><table><tr><th>Makina / araç</th><th>Depodan</th><th>Petrolden</th><th>Toplam</th></tr>`+
+      rows.map(x=>`<tr><td>${esc(x.m.name)}</td><td>${fmt(x.a)}</td><td>${fmt(x.b)}</td><td><b>${fmt(x.a+x.b)}</b></td></tr>`).join('')+
+      `<tr><td><b>TOPLAM</b></td><td><b>${fmt(sum(depo,'liters'))}</b></td><td><b>${fmt(sum(pet,'liters'))}</b></td><td><b>${fmt(sum(fo,'liters'))}</b></td></tr></table></div>`;
+  }
+  const all=[...fin.map(x=>({...x,k:'in'})),...depo.map(x=>({...x,k:'out'})),...pet.map(x=>({...x,k:'pet'}))].sort(byDate);
+  h+=`<h2>Hareketler</h2>`;
+  if(!all.length)return h+empty('Bu dönemde mazot hareketi yok.');
+  all.forEach(x=>{
+    if(x.k==='in')h+=item(`openForm('fuelIn','${x.id}')`,`<b class="pos">+ ${fmt(x.liters)} L depoya giren</b><div class="sub">${fd(x.date)}${x.supplier?' · '+esc(x.supplier):''}</div>`,x.total?`<b>${TL(x.total)}</b><div class="sub">${fmt(x.price)} ₺/L</div>`:'');
+    else if(x.k==='out')h+=item(`openForm('fuelOut','${x.id}')`,`<b class="neg">− ${fmt(x.liters)} L depodan</b><div class="sub">${fd(x.date)} · ${esc(nm(db.machines,x.machineId))}${x.note?' · '+esc(x.note):''}</div>`,avgPrice()?`<div class="sub">${TL(outCost(x))}</div>`:'');
+    else h+=item(`openForm('petrol','${x.id}')`,`<b>⛽ ${fmt(x.liters)} L petrolden</b><div class="sub">${fd(x.date)} · ${esc(nm(db.machines,x.machineId))}${x.note?' · '+esc(x.note):''}</div>`,x.price>0?`<b>${TL(x.liters*x.price)}</b><div class="sub">${fmt(x.price)} ₺/L</div>`:'');
+  });
+  return h;
+}
+
+function vMusteri(){
+  if(!db.customers.length)return empty('Müşteri yok. + ile ekleyin.');
+  let h='';
+  db.customers.slice().sort((a,b)=>a.name.localeCompare(b.name,'tr')).forEach(c=>{
+    const t=custTotals(c.id),b=t.bal;
+    h+=`<div class="card"><div class="row" onclick="openForm('customer','${c.id}')"><div><b>${esc(c.name)}</b><div class="sub">${esc(c.phone||'')}${c.note?' · '+esc(c.note):''}</div></div>
+      <div style="text-align:right"><b class="${b>0?'neg':'pos'}">${TL(Math.abs(b))}</b><div class="sub">${b>0?'kalan borç':b<0?'alacaklı':'kapalı'}</div></div></div>
+      <div class="sub">Toplam yapılan iş ${TL(t.jt)} · Alınan ${TL(t.got)}</div>
+      <div class="btns" style="margin-top:8px"><button class="btn s f" onclick="ekstre('${c.id}')">Ekstre</button><button class="btn s f" onclick="openReport('musteri','${c.id}')">📄 Rapor</button><button class="btn g f" onclick="openForm('payment',null,{customerId:'${c.id}'})">+ Tahsilat</button>${c.phone?`<a class="btn s" style="text-decoration:none" href="tel:${esc(c.phone)}">📞</a>`:''}</div></div>`;
+  });
+  return h;
+}
+
+function ekstre(id){
+  const c=db.customers.find(x=>x.id===id);if(!c)return;
+  const ev=[];
+  db.jobs.filter(j=>j.customerId===id).forEach(j=>{
+    ev.push({d:j.date,t:`İş · ${nm(db.machines,j.machineId)}${j.hours?' · '+fmtQty(j.hours,j.machineId):''}${j.place?' · '+j.place:''}`,b:+j.total||0,type:'job',id:j.id});
+    if(+j.received>0)ev.push({d:j.date,t:'Alınan (iş üzerinden)',b:-(+j.received),type:'job',id:j.id});
+  });
+  db.payments.filter(p=>p.customerId===id).forEach(p=>ev.push({d:p.date,t:'Tahsilat'+(p.note?' · '+p.note:''),b:-(+p.amount||0),type:'payment',id:p.id}));
+  ev.sort((a,b)=>a.d<b.d?-1:a.d>b.d?1:0);
+  let bal=0,rows='';
+  ev.forEach(e=>{bal+=e.b;rows+=`<tr class="c" onclick="openForm('${e.type}','${e.id}')"><td>${fd(e.d)}</td><td style="text-align:left;white-space:normal">${esc(e.t)}</td><td class="${e.b<0?'pos':''}">${e.b<0?'−':''}${fmt(Math.abs(e.b))}</td><td><b>${fmt(bal)}</b></td></tr>`});
+  showModal(`<h3>Ekstre · ${esc(c.name)}</h3><div class="sub">Satıra dokunarak düzenleyebilirsiniz.</div>
+    <div class="sc"><table><tr><th>Tarih</th><th style="text-align:left">İşlem</th><th>Tutar</th><th>Kalan</th></tr>${rows||'<tr><td colspan="4" style="text-align:center;color:#9ca3af">Kayıt yok</td></tr>'}</table></div>
+    <div class="tot" style="margin-top:10px">Güncel kalan: <span class="${bal>0?'neg':'pos'}">${TL(bal)}</span></div>
+    <div class="btns"><button class="btn f" onclick="closeModal()">Kapat</button></div>`);
+}
+
+function vMakina(){
+  if(!db.machines.length)return empty('Makina yok. + ile ekleyin.');
+  let h='';
+  ['makina','kamyon','arac'].forEach(t=>{
+    const l=db.machines.filter(m=>m.tur===t);
+    if(!l.length)return;
+    h+=`<h2>${TUR[t]}</h2>`;
+    l.forEach(m=>{const s=machineStats(m);
+      h+=`<div class="card"><div class="row" onclick="openForm('machine','${m.id}')"><div>`+
+        `<b>${esc(m.name)}</b>${t==='arac'?'':`<div class="sub">${s.jobs} iş · ${t==='kamyon'?fmt(s.qty)+' sefer':hm(s.qty)+' saat'}</div>`}`+
+        `</div><div style="text-align:right">`+
+        `<b>${fmt(s.fuel)} L</b><div class="sub">${t==='arac'?'yakıt toplamı':fmt(s.per)+' L/'+unit(m)}</div>${t==='arac'?'':`<div class="sub ${s.profit>=0?'pos':'neg'}">kâr ${TL(s.profit)}</div>`}`+
+        `</div></div><div class="btns" style="margin-top:8px"><button class="btn s f" onclick="openReport('makina','${m.id}')">📄 Rapor (PDF / Excel)</button></div></div>`});
+  });
+  return h;
+}
+
+function vGider(){
+  const l=db.expenses.filter(inP).sort(byDate);
+  if(!l.length)return empty('Bu dönemde gider yok.<br>+ ile ekleyin.');
+  let h=`<div class="btns" style="margin:0 0 10px"><button class="btn f s" onclick="openReport('gider')">📄 Gider raporu (PDF / Excel)</button></div><div class="tot">Toplam ${TL(sum(l,'amount'))}</div>`;
+  l.forEach(e=>{h+=item(`openForm('expense','${e.id}')`,`<b>${esc(e.cat)}</b><div class="sub">${fd(e.date)}${e.machineId?' · '+esc(nm(db.machines,e.machineId)):''}${e.note?' · '+esc(e.note):''}</div>`,`<b class="neg">${TL(e.amount)}</b>`)});
+  return h;
+}
+
+const VIEWS={ozet:vOzet,isler:vIsler,mazot:vMazot,musteri:vMusteri,makina:vMakina,gider:vGider};
+const FAB={isler:'job',musteri:'customer',makina:'machine',gider:'expense'};
+function fabClick(){if(FAB[tab])openForm(FAB[tab])}
+function go(t){tab=t;render();scrollTo(0,0)}
+function render(){
+  $('#title').textContent=TITLES[tab];
+  $('#nav').innerHTML=TABS.map(([k,l,i])=>`<button class="${k===tab?'on':''}" onclick="go('${k}')"><span>${i}</span>${l}</button>`).join('');
+  $('#fab').style.display=FAB[tab]?'block':'none';
+  $('#period').style.visibility=tab==='musteri'?'hidden':'visible';
+  $('#view').innerHTML=VIEWS[tab]();
+}
+
+/* ---------- Yedek / CSV ---------- */
+function toB64(u8){let s='';for(let i=0;i<u8.length;i+=0x8000)s+=String.fromCharCode.apply(null,u8.subarray(i,i+0x8000));return btoa(s)}
+/* data: metin (string) veya ikili (Uint8Array) olabilir */
+async function dl(name,data,type){
+  const isStr=typeof data==='string';
+  /* 1) Android uygulaması (APK) içinde: dosyayı önbelleğe yazıp paylaşım menüsünü aç */
+  const C=window.Capacitor;
+  if(C&&C.isNativePlatform&&C.isNativePlatform()&&C.Plugins&&C.Plugins.Filesystem&&C.Plugins.Share){
+    try{
+      const F=C.Plugins.Filesystem;
+      const arg={path:name,data:isStr?data:toB64(data),directory:'CACHE'};
+      if(isStr)arg.encoding='utf8';
+      await F.writeFile(arg);
+      const u=await F.getUri({path:name,directory:'CACHE'});
+      await C.Plugins.Share.share({title:name,url:u.uri,dialogTitle:'Kaydet veya paylaş'});
+      return;
+    }catch(e){if(String(e&&e.message||e).toLowerCase().indexOf('cancel')>=0)return}
+  }
+  const blob=new Blob([data],{type});
+  /* 2) Telefon tarayıcısı / iPhone: paylaşım menüsü (dosyayı Dosyalar'a, WhatsApp'a vb. gönderir) */
+  try{
+    if(/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)&&navigator.canShare&&window.File){
+      const file=new File([blob],name,{type});
+      if(navigator.canShare({files:[file]})){await navigator.share({files:[file],title:name});return}
+    }
+  }catch(e){if(e&&e.name==='AbortError')return}
+  /* 3) Bilgisayar / yedek yol: normal indirme */
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();a.remove();
+}
+function backup(){dl('ismakinasi-yedek-'+today()+'.json',JSON.stringify(db),'application/json')}
+function restore(inp){
+  const f=inp.files[0];if(!f)return;
+  const r=new FileReader();
+  r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.jobs||!d.machines)throw 0;
+    if(confirm('Mevcut veriler silinip yedek dosyası yüklenecek. Emin misiniz?')){db=Object.assign(emptyDb(),d);save();render()}}
+    catch(e){alert('Geçersiz yedek dosyası')}};
+  r.readAsText(f);inp.value='';
+}
+function csv(kind){
+  const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"',n=v=>v==null?'':String(v).replace('.',',');
+  let rows;
+  if(kind==='jobs'){
+    rows=[['Tarih','Adı soyadı','Makina','Saat-Sefer','Saat ücreti','Borç','Alınan','Kalan','Açıklama']];
+    db.jobs.slice().sort(byDate).forEach(j=>rows.push([fd(j.date),nm(db.customers,j.customerId),nm(db.machines,j.machineId),j.hours==null?'':(isSefer(j.machineId)?n(j.hours):hm(j.hours)),n(j.rate),n(j.total),n(j.received||0),n((+j.total||0)-(+j.received||0)),j.place||'']));
+  }else{
+    rows=[['Tarih','Tür','Makina/araç','Litre','Birim fiyat','Tutar','Açıklama']];
+    db.fuelIn.forEach(x=>rows.push([fd(x.date),'Depoya giren','',n(x.liters),n(x.price),n(x.total),x.supplier||'']));
+    db.fuelOut.forEach(x=>rows.push([fd(x.date),isDepo(x)?'Depodan alınan':'Petrolden alınan',nm(db.machines,x.machineId),n(x.liters),n(x.price),'',x.note||'']));
+  }
+  dl((kind==='jobs'?'isler':'mazot')+'-'+today()+'.csv','﻿'+rows.map(r=>r.map(q).join(';')).join('\r\n'),'text/csv');
+}
+
+/* ================= RAPORLAR (PDF / Excel) ================= */
+const fmt2=n=>(+n).toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2});
+const predRange=(from,to)=>r=>(!from||r.date>=from)&&(!to||r.date<=to);
+const asc=(a,b)=>a.date<b.date?-1:a.date>b.date?1:0;
+const slug=s=>String(s).toLocaleLowerCase('tr').replace(/ç/g,'c').replace(/ğ/g,'g').replace(/ı/g,'i').replace(/ö/g,'o').replace(/ş/g,'s').replace(/ü/g,'u').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')||'rapor';
+function periodDates(){
+  const[a,b]=range();
+  if(a==='0000-01-01')return['',''];
+  const p=b.split('-'),last=new Date(+p[0],+p[1],0).getDate();
+  return[a,p[0]+'-'+p[1]+'-'+String(last).padStart(2,'0')];
+}
+function periodLabel(from,to){
+  if(!from&&!to)return 'Dönem: tümü';
+  if(from&&!to)return 'Dönem: '+fd(from)+' ve sonrası';
+  if(!from&&to)return 'Dönem: '+fd(to)+' tarihine kadar';
+  return 'Dönem: '+fd(from)+' – '+fd(to);
+}
+const qtyStr=(h,mid)=>h==null||h===''?'':(isSefer(mid)?fmt(h)+' sefer':hm(h)+' sa');
+
+/* ---- Rapor modelleri: {title, sub[], sections:[{heading, cols:[{h,w,t}], rows, total}], file, summary}
+   sütun türleri: t=metin(varsayılan) n=para q=miktar i=tam sayı ---- */
+function repMusteri(id,from,to){
+  const pl=periodLabel(from,to);
+  const evOf=cid=>{
+    const ev=[];
+    db.jobs.filter(j=>j.customerId===cid).forEach(j=>ev.push({date:j.date,t:'job',j,b:+j.total||0,a:+j.received||0}));
+    db.payments.filter(p=>p.customerId===cid).forEach(p=>ev.push({date:p.date,t:'pay',p,b:0,a:+p.amount||0}));
+    return ev.sort(asc);
+  };
+  const inR=predRange(from,to);
+  if(id==='borclu'||id==='hepsi'){
+    let rows=db.customers.map(c=>{
+      const ev=evOf(c.id);
+      const dev=from?ev.filter(e=>e.date<from).reduce((s,e)=>s+e.b-e.a,0):0;
+      const inn=ev.filter(inR),b=sum(inn,'b'),a=sum(inn,'a');
+      return{c,dev,b,a,k:dev+b-a};
+    });
+    if(id==='borclu')rows=rows.filter(x=>x.k>0.005);
+    rows.sort((x,y)=>y.k-x.k);
+    const T=k=>rows.reduce((s,x)=>s+x[k],0);
+    return{
+      title:id==='borclu'?'Borçlu Müşteriler Raporu':'Müşteri Cari Özeti',
+      sub:[pl,'Kalan = devreden + borç − alınan'],
+      sections:[{cols:[{h:'Müşteri',w:3},{h:'Telefon',w:2},{h:'Devreden',w:2,t:'n'},{h:'Borç',w:2,t:'n'},{h:'Alınan',w:2,t:'n'},{h:'Kalan',w:2,t:'n'}],
+        rows:rows.map(x=>[x.c.name,x.c.phone||'',x.dev,x.b,x.a,x.k]),
+        total:['TOPLAM','',T('dev'),T('b'),T('a'),T('k')]}],
+      file:id==='borclu'?'borclu-musteriler':'musteri-ozet',
+      summary:rows.length+' müşteri · toplam kalan '+TL(T('k'))
+    };
+  }
+  const c=db.customers.find(x=>x.id===id);
+  if(!c)return null;
+  const ev=evOf(id);
+  const dev=from?ev.filter(e=>e.date<from).reduce((s,e)=>s+e.b-e.a,0):0;
+  const inn=ev.filter(inR);
+  let bal=dev;const rows=[];
+  if(from)rows.push([fd(from),'Devreden bakiye','',null,null,null,dev]);
+  inn.forEach(e=>{
+    bal+=e.b-e.a;
+    if(e.t==='job'){
+      const j=e.j;
+      rows.push([fd(j.date),nm(db.machines,j.machineId)+(j.place?' · '+j.place:''),qtyStr(j.hours,j.machineId),j.rate||null,e.b,e.a||null,bal]);
+    }else rows.push([fd(e.p.date),'Tahsilat'+(e.p.note?' · '+e.p.note:''),'',null,null,e.a,bal]);
+  });
+  return{
+    title:'Müşteri Hesap Raporu',
+    sub:['Müşteri: '+c.name+(c.phone?'   ·   Tel: '+c.phone:''),pl],
+    sections:[{cols:[{h:'Tarih',w:1.5},{h:'Açıklama',w:4},{h:'Miktar',w:1.7},{h:'Ücret',w:1.5,t:'n'},{h:'Borç',w:1.8,t:'n'},{h:'Alınan',w:1.8,t:'n'},{h:'Kalan',w:1.9,t:'n'}],
+      rows,total:['TOPLAM','','',null,sum(inn,'b'),sum(inn,'a'),bal]}],
+    file:'hesap-'+slug(c.name),
+    summary:inn.length+' hareket · kalan '+TL(bal)
+  };
+}
+
+function repGider(cat,from,to){
+  const inR=predRange(from,to);
+  const l=db.expenses.filter(e=>inR(e)&&(cat==='all'||e.cat===cat)).sort(asc);
+  const secs=[{heading:cat==='all'?'Gider kayıtları':'',
+    cols:[{h:'Tarih',w:1.5},{h:'Kalem',w:2.4},{h:'Makina',w:2},{h:'Açıklama',w:3.4},{h:'Tutar',w:1.8,t:'n'}],
+    rows:l.map(e=>[fd(e.date),e.cat,e.machineId?nm(db.machines,e.machineId):'',e.note||'',+e.amount||0]),
+    total:['TOPLAM','','','',sum(l,'amount')]}];
+  if(cat==='all'){
+    const by={};l.forEach(e=>{const k=e.cat||'-';(by[k]=by[k]||{n:0,t:0});by[k].n++;by[k].t+=+e.amount||0});
+    const ent=Object.entries(by).sort((a,b)=>b[1].t-a[1].t);
+    secs.push({heading:'Kalem toplamları',cols:[{h:'Kalem',w:4},{h:'Adet',w:1,t:'i'},{h:'Tutar',w:2,t:'n'}],
+      rows:ent.map(([k,v])=>[k,v.n,v.t]),total:['TOPLAM',l.length,sum(l,'amount')]});
+  }
+  return{
+    title:cat==='all'?'Gider Raporu':'Gider Raporu · '+cat,
+    sub:[periodLabel(from,to)],sections:secs,
+    file:cat==='all'?'gider-raporu':'gider-'+slug(cat),
+    summary:l.length+' kayıt · toplam '+TL(sum(l,'amount'))
+  };
+}
+
+function repMakina(id,from,to){
+  const inR=predRange(from,to);
+  const st=m=>{
+    const jobs=db.jobs.filter(j=>j.machineId===m.id&&inR(j)).sort(asc);
+    const fo=db.fuelOut.filter(f=>f.machineId===m.id&&inR(f)).sort(asc);
+    const ex=db.expenses.filter(e=>e.machineId===m.id&&inR(e)).sort(asc);
+    const qty=sum(jobs,'hours'),fuel=sum(fo,'liters'),rev=sum(jobs,'total');
+    const fcost=fo.reduce((s,r)=>s+outCost(r),0),exp=sum(ex,'amount');
+    return{jobs,fo,ex,qty,fuel,per:qty?fuel/qty:0,rev,fcost,exp,profit:rev-fcost-exp};
+  };
+  const note='Mazot maliyeti: depodan alınanlar depo ortalama alış fiyatıyla (şu an '+TL(avgPrice())+'/L), petrolden alınanlar girilen fiyatla hesaplanır.';
+  if(id==='all'){
+    const rows=db.machines.map(m=>({m,s:st(m)})).filter(x=>x.s.jobs.length||x.s.fo.length||x.s.ex.length).map(({m,s})=>{
+      const q=m.tur==='arac'?'':(m.tur==='kamyon'?fmt(s.qty)+' sefer':hm(s.qty)+' sa');
+      return{m,s,r:[m.name,TUR[m.tur],q,s.fuel,m.tur==='arac'?null:s.per,s.rev,s.fcost,s.exp,s.profit]}});
+    const T=k=>rows.reduce((a,x)=>a+x.s[k],0);
+    return{title:'Makina ve Araç Raporu',sub:[periodLabel(from,to),note],
+      sections:[{cols:[{h:'Makina / araç',w:2.4},{h:'Tür',w:2.3},{h:'Çalışma',w:1.7},{h:'Mazot L',w:1.4,t:'q'},{h:'L/birim',w:1.3,t:'q'},{h:'Gelir',w:1.8,t:'n'},{h:'Mazot ₺',w:1.8,t:'n'},{h:'Gider',w:1.6,t:'n'},{h:'Kâr',w:1.8,t:'n'}],
+        rows:rows.map(x=>x.r),total:['TOPLAM','','',T('fuel'),null,T('rev'),T('fcost'),T('exp'),T('profit')]}],
+      file:'makina-raporu',summary:rows.length+' makina/araç · toplam kâr '+TL(T('profit'))};
+  }
+  const m=db.machines.find(x=>x.id===id);
+  if(!m)return null;
+  const s=st(m),arac=m.tur==='arac',u=unit(m);
+  const secs=[];
+  secs.push({heading:'Özet',cols:[{h:'Gösterge',w:3},{h:'Değer',w:2.5}],rows:[
+    ...(arac?[]:[['Toplam çalışma',m.tur==='kamyon'?fmt(s.qty)+' sefer':hm(s.qty)+' saat'],['İş sayısı',String(s.jobs.length)]]),
+    ['Yakıt (litre)',fmt(s.fuel)+' L'],
+    ...(arac?[]:[['Yakıt tüketimi',fmt(s.per)+' L/'+u],['Gelir (işler)',TL(s.rev)]]),
+    ['Mazot maliyeti',TL(s.fcost)],['Makinaya bağlı giderler',TL(s.exp)],
+    ...(arac?[]:[['Kâr (gelir − mazot − gider)',TL(s.profit)]])
+  ],total:null});
+  if(!arac&&s.jobs.length)secs.push({heading:'İşler',cols:[{h:'Tarih',w:1.5},{h:'Müşteri',w:3},{h:'Miktar',w:1.7},{h:'Ücret',w:1.6,t:'n'},{h:'Tutar',w:1.9,t:'n'}],
+    rows:s.jobs.map(j=>[fd(j.date),nm(db.customers,j.customerId)+(j.place?' · '+j.place:''),qtyStr(j.hours,j.machineId),j.rate||null,+j.total||0]),
+    total:['TOPLAM','',null,null,s.rev]});
+  if(s.fo.length)secs.push({heading:'Mazot',cols:[{h:'Tarih',w:1.5},{h:'Kaynak',w:1.6},{h:'Açıklama',w:3},{h:'Litre',w:1.4,t:'q'},{h:'Tutar',w:1.9,t:'n'}],
+    rows:s.fo.map(f=>[fd(f.date),isDepo(f)?'Depo':'Petrol',f.note||'',+f.liters||0,outCost(f)]),
+    total:['TOPLAM','','',s.fuel,s.fcost]});
+  if(s.ex.length)secs.push({heading:'Giderler',cols:[{h:'Tarih',w:1.5},{h:'Kalem',w:2.4},{h:'Açıklama',w:3.2},{h:'Tutar',w:1.9,t:'n'}],
+    rows:s.ex.map(e=>[fd(e.date),e.cat,e.note||'',+e.amount||0]),
+    total:['TOPLAM','','',s.exp]});
+  return{title:'Makina Raporu · '+m.name,sub:[TUR[m.tur]+'   ·   '+periodLabel(from,to),note],sections:secs,
+    file:'makina-'+slug(m.name),
+    summary:arac?(fmt(s.fuel)+' L yakıt · '+TL(s.fcost)):(s.jobs.length+' iş · '+fmt(s.fuel)+' L · kâr '+TL(s.profit))};
+}
+
+/* ---- Yardımcılar ---- */
+function cellText(col,v){
+  if(v==null||v==='')return '';
+  if(typeof v==='number'){if(col.t==='n')return fmt2(v);if(col.t==='i')return String(Math.round(v));return fmt(v)}
+  return String(v);
+}
+const isNumCol=c=>c.t==='n'||c.t==='q'||c.t==='i';
+
+/* ---- PDF: sayfaları tuvalde çiz, JPEG olarak PDF'e göm (Türkçe harfler sorunsuz) ---- */
+function wrapText(ctx,text,maxW,maxLines){
+  const words=String(text).split(/\s+/).filter(Boolean);
+  let lines=[],cur='';
+  for(const w of words){
+    const t=cur?cur+' '+w:w;
+    if(ctx.measureText(t).width<=maxW){cur=t;continue}
+    if(cur){lines.push(cur);cur=''}
+    let wt=w;
+    while(ctx.measureText(wt).width>maxW&&wt.length>1){
+      let k=wt.length;
+      while(k>1&&ctx.measureText(wt.slice(0,k)).width>maxW)k--;
+      lines.push(wt.slice(0,k));wt=wt.slice(k);
+    }
+    cur=wt;
+  }
+  if(cur)lines.push(cur);
+  if(lines.length>maxLines){
+    lines=lines.slice(0,maxLines);
+    let l=lines[maxLines-1];
+    while(l.length>1&&ctx.measureText(l+'…').width>maxW)l=l.slice(0,-1);
+    lines[maxLines-1]=l+'…';
+  }
+  return lines.length?lines:[''];
+}
+function renderPdf(rep){
+  const land=rep.sections.some(s=>s.cols.length>7);
+  const W=land?1754:1240,H=land?1240:1754,M=64,F=22,LH=28,PAD=10,usable=W-2*M;
+  const FONT=b=>(b?'bold ':'')+F+'px Roboto,"Segoe UI",Arial,"DejaVu Sans",sans-serif';
+  const FONTS=(b,sz)=>(b?'bold ':'')+sz+'px Roboto,"Segoe UI",Arial,"DejaVu Sans",sans-serif';
+  const pages=[];let cv,ctx,y;
+  const limit=()=>H-M-30;
+  const newPage=()=>{
+    cv=document.createElement('canvas');cv.width=W;cv.height=H;ctx=cv.getContext('2d');
+    ctx.fillStyle='#fff';ctx.fillRect(0,0,W,H);ctx.fillStyle='#f59e0b';ctx.fillRect(0,0,W,14);
+    ctx.textBaseline='top';pages.push(cv);y=M;
+  };
+  const put=(txt,x,yy,align)=>{ctx.textAlign=align;ctx.fillText(txt,x,yy)};
+  newPage();
+  ctx.fillStyle='#111827';ctx.font=FONTS(1,40);
+  wrapText(ctx,rep.title,usable,2).forEach(l=>{put(l,M,y,'left');y+=50});
+  ctx.font=FONT(0);
+  rep.sub.forEach(t=>{ctx.fillStyle='#4b5563';wrapText(ctx,t,usable,3).forEach(l=>{put(l,M,y,'left');y+=LH})});
+  y+=18;
+  rep.sections.forEach(s=>{
+    const tw=s.cols.reduce((a,c)=>a+c.w,0),cw=s.cols.map(c=>c.w/tw*usable);
+    if(s.heading){
+      if(y+90>limit())newPage();
+      ctx.fillStyle='#111827';ctx.font=FONTS(1,28);put(s.heading,M,y,'left');y+=44;
+    }
+    const header=()=>{
+      ctx.fillStyle='#e5e7eb';ctx.fillRect(M,y,usable,LH+PAD+4);
+      ctx.fillStyle='#111827';ctx.font=FONT(1);
+      let x=M;
+      s.cols.forEach((c,i)=>{
+        const t=wrapText(ctx,c.h,cw[i]-2*PAD,1)[0];
+        isNumCol(c)?put(t,x+cw[i]-PAD,y+PAD/2+2,'right'):put(t,x+PAD,y+PAD/2+2,'left');
+        x+=cw[i];
+      });
+      y+=LH+PAD+4;
+    };
+    const drawRow=(cells,bold,fill,topLine)=>{
+      ctx.font=FONT(bold);
+      const cl=s.cols.map((c,i)=>wrapText(ctx,cellText(c,cells[i]),cw[i]-2*PAD,isNumCol(c)?1:3));
+      const rh=Math.max(...cl.map(l=>l.length))*LH+PAD+4;
+      if(y+rh>limit()){newPage();header()}
+      if(fill){ctx.fillStyle=fill;ctx.fillRect(M,y,usable,rh)}
+      if(topLine){ctx.fillStyle='#111827';ctx.fillRect(M,y,usable,2)}
+      ctx.fillStyle='#111827';ctx.font=FONT(bold);
+      let x=M;
+      s.cols.forEach((c,i)=>{
+        cl[i].forEach((l,k)=>{isNumCol(c)?put(l,x+cw[i]-PAD,y+PAD/2+2+k*LH,'right'):put(l,x+PAD,y+PAD/2+2+k*LH,'left')});
+        x+=cw[i];
+      });
+      ctx.fillStyle='#e5e7eb';ctx.fillRect(M,y+rh-1,usable,1);
+      y+=rh;
+    };
+    if(y+LH*4>limit())newPage();
+    header();
+    s.rows.forEach((r,i)=>drawRow(r,false,i%2?'#f9fafb':null,false));
+    if(s.total)drawRow(s.total,true,'#fef3c7',true);
+    y+=34;
+  });
+  const stamp=new Date().toLocaleString('tr-TR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  pages.forEach((p,i)=>{
+    const c=p.getContext('2d');c.textBaseline='top';c.fillStyle='#6b7280';c.font=FONTS(0,18);
+    c.textAlign='left';c.fillText('İş Makinası Takip · '+stamp,M,H-M+8);
+    c.textAlign='right';c.fillText('Sayfa '+(i+1)+'/'+pages.length,W-M,H-M+8);
+  });
+  const imgs=pages.map(p=>{
+    const b64=p.toDataURL('image/jpeg',0.92).split(',')[1],bin=atob(b64),u=new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);
+    return{bytes:u,w:p.width,h:p.height};
+  });
+  return makePdf(imgs,land);
+}
+function makePdf(imgs,land){
+  const PW=land?841.89:595.28,PH=land?595.28:841.89;
+  const parts=[],offs=[];let pos=0;
+  const A=s=>{const b=new Uint8Array(s.length);for(let i=0;i<s.length;i++)b[i]=s.charCodeAt(i)&255;return b};
+  const put=b=>{if(typeof b==='string')b=A(b);parts.push(b);pos+=b.length};
+  const begin=id=>{offs[id]=pos;put(id+' 0 obj\n')};
+  const n=imgs.length;
+  put('%PDF-1.4\n');put(new Uint8Array([0x25,0xE2,0xE3,0xCF,0xD3,0x0A]));
+  begin(1);put('<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
+  begin(2);put('<< /Type /Pages /Count '+n+' /Kids ['+imgs.map((_,i)=>(3+3*i)+' 0 R').join(' ')+'] >>\nendobj\n');
+  imgs.forEach((im,i)=>{
+    const p=3+3*i,c=p+1,x=p+2,cs='q '+PW+' 0 0 '+PH+' 0 0 cm /Im0 Do Q';
+    begin(p);put('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 '+PW+' '+PH+'] /Resources << /XObject << /Im0 '+x+' 0 R >> /ProcSet [/PDF /ImageC] >> /Contents '+c+' 0 R >>\nendobj\n');
+    begin(c);put('<< /Length '+cs.length+' >>\nstream\n'+cs+'\nendstream\nendobj\n');
+    begin(x);put('<< /Type /XObject /Subtype /Image /Width '+im.w+' /Height '+im.h+' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length '+im.bytes.length+' >>\nstream\n');
+    put(im.bytes);put('\nendstream\nendobj\n');
+  });
+  const total=3+3*n,xr=pos;
+  put('xref\n0 '+total+'\n0000000000 65535 f \n');
+  for(let i=1;i<total;i++)put(String(offs[i]).padStart(10,'0')+' 00000 n \n');
+  put('trailer\n<< /Size '+total+' /Root 1 0 R >>\nstartxref\n'+xr+'\n%%EOF');
+  const out=new Uint8Array(pos);let o=0;parts.forEach(b=>{out.set(b,o);o+=b.length});
+  return out;
+}
+
+/* ---- Excel (.xlsx): kütüphanesiz, sıkıştırmasız zip ile yazılır ---- */
+const CRC_T=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
+function crc32(b){let c=0xFFFFFFFF;for(let i=0;i<b.length;i++)c=CRC_T[(c^b[i])&255]^(c>>>8);return(c^0xFFFFFFFF)>>>0}
+function makeZip(files){
+  const T=new TextEncoder(),loc=[],cen=[];let off=0;
+  const date=((2026-1980)<<9)|(10<<5)|4;
+  files.forEach(f=>{
+    const nm=T.encode(f.name),d=f.data,crc=crc32(d);
+    const lh=new Uint8Array(30+nm.length),lv=new DataView(lh.buffer);
+    lv.setUint32(0,0x04034b50,true);lv.setUint16(4,20,true);lv.setUint16(6,0x0800,true);lv.setUint16(8,0,true);lv.setUint16(10,0,true);lv.setUint16(12,date,true);
+    lv.setUint32(14,crc,true);lv.setUint32(18,d.length,true);lv.setUint32(22,d.length,true);lv.setUint16(26,nm.length,true);lv.setUint16(28,0,true);lh.set(nm,30);
+    const ch=new Uint8Array(46+nm.length),cv=new DataView(ch.buffer);
+    cv.setUint32(0,0x02014b50,true);cv.setUint16(4,20,true);cv.setUint16(6,20,true);cv.setUint16(8,0x0800,true);cv.setUint16(10,0,true);cv.setUint16(12,0,true);cv.setUint16(14,date,true);
+    cv.setUint32(16,crc,true);cv.setUint32(20,d.length,true);cv.setUint32(24,d.length,true);cv.setUint16(28,nm.length,true);cv.setUint32(42,off,true);ch.set(nm,46);
+    loc.push(lh,d);cen.push(ch);off+=lh.length+d.length;
+  });
+  const cdSize=cen.reduce((a,b)=>a+b.length,0);
+  const end=new Uint8Array(22),ev=new DataView(end.buffer);
+  ev.setUint32(0,0x06054b50,true);ev.setUint16(8,files.length,true);ev.setUint16(10,files.length,true);ev.setUint32(12,cdSize,true);ev.setUint32(16,off,true);
+  const all=[...loc,...cen,end],out=new Uint8Array(all.reduce((a,b)=>a+b.length,0));
+  let o=0;all.forEach(b=>{out.set(b,o);o+=b.length});
+  return out;
+}
+const xe=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g,'');
+function colName(i){let s='';i++;while(i>0){const m=(i-1)%26;s=String.fromCharCode(65+m)+s;i=Math.floor((i-1)/26)}return s}
+function renderXlsx(rep){
+  const T=new TextEncoder(),secs=rep.sections,names=[];
+  const sheetName=(s,i)=>{
+    let n=(s.heading||rep.title||'Rapor').replace(/[\[\]:*?\/\\]/g,' ').trim().slice(0,28)||'Rapor';
+    let base=n,k=2;while(names.indexOf(n)>=0)n=base.slice(0,26)+' '+(k++);
+    names.push(n);return n;
+  };
+  const NS='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+  const sheets=secs.map((s,si)=>{
+    const rows=[];let r=0;
+    const sc=(ci,v,st)=>{
+      const ref=colName(ci)+(r+1);
+      if(v==null||v==='')return '';
+      if(typeof v==='number'&&isFinite(v))return '<c r="'+ref+'" s="'+st+'"><v>'+v+'</v></c>';
+      return '<c r="'+ref+'" s="'+(st===2||st===3||st===6||st===7||st===8||st===9?(st%2?4:0):st)+'" t="inlineStr"><is><t xml:space="preserve">'+xe(v)+'</t></is></c>';
+    };
+    const addRow=cells=>{rows.push('<row r="'+(r+1)+'">'+cells+'</row>');r++};
+    const widths=s.cols.map(c=>Math.max(8,String(c.h).length+2));
+    s.rows.concat(s.total?[s.total]:[]).forEach(row=>row.forEach((v,i)=>{const L=cellText(s.cols[i],v).length+2;if(L>widths[i])widths[i]=Math.min(60,L)}));
+    addRow(sc(0,rep.title,5));
+    rep.sub.forEach(t=>addRow(sc(0,t,10)));
+    if(s.heading&&secs.length>1)addRow(sc(0,s.heading,4));
+    addRow('');
+    addRow(s.cols.map((c,i)=>sc(i,c.h,1)).join(''));
+    const nst={n:[2,3],q:[6,7],i:[8,9]};
+    s.rows.forEach(row=>addRow(row.map((v,i)=>{const t=s.cols[i].t;return sc(i,v,t&&nst[t]?nst[t][0]:0)}).join('')));
+    if(s.total)addRow(s.total.map((v,i)=>{const t=s.cols[i].t;return sc(i,v,t&&nst[t]?nst[t][1]:4)}).join(''));
+    const cols='<cols>'+widths.map((w,i)=>'<col min="'+(i+1)+'" max="'+(i+1)+'" width="'+w+'" customWidth="1"/>').join('')+'</cols>';
+    return{name:sheetName(s,si),xml:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="'+NS+'">'+cols+'<sheetData>'+rows.join('')+'</sheetData></worksheet>'};
+  });
+  const styles='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="'+NS+'"><numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0.##"/></numFmts>'+
+    '<fonts count="4"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="14"/><name val="Calibri"/></font><font><sz val="10"/><color rgb="FF6B7280"/><name val="Calibri"/></font></fonts>'+
+    '<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE5E7EB"/><bgColor indexed="64"/></patternFill></fill></fills>'+
+    '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'+
+    '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'+
+    '<cellXfs count="11">'+
+    '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'+
+    '<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/>'+
+    '<xf numFmtId="4" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'+
+    '<xf numFmtId="4" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyNumberFormat="1"/>'+
+    '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>'+
+    '<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>'+
+    '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'+
+    '<xf numFmtId="164" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyNumberFormat="1"/>'+
+    '<xf numFmtId="1" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'+
+    '<xf numFmtId="1" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyNumberFormat="1"/>'+
+    '<xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1"/>'+
+    '</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
+  const n=sheets.length,H='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+  const files=[
+    {name:'[Content_Types].xml',xml:H+'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'+sheets.map((_,i)=>'<Override PartName="/xl/worksheets/sheet'+(i+1)+'.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join('')+'<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>'},
+    {name:'_rels/.rels',xml:H+'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'},
+    {name:'xl/workbook.xml',xml:H+'<workbook xmlns="'+NS+'" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>'+sheets.map((s,i)=>'<sheet name="'+xe(s.name)+'" sheetId="'+(i+1)+'" r:id="rId'+(i+1)+'"/>').join('')+'</sheets></workbook>'},
+    {name:'xl/_rels/workbook.xml.rels',xml:H+'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+sheets.map((_,i)=>'<Relationship Id="rId'+(i+1)+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet'+(i+1)+'.xml"/>').join('')+'<Relationship Id="rId'+(n+1)+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'},
+    {name:'xl/styles.xml',xml:styles}
+  ].concat(sheets.map((s,i)=>({name:'xl/worksheets/sheet'+(i+1)+'.xml',xml:s.xml})));
+  return makeZip(files.map(f=>({name:f.name,data:T.encode(f.xml)})));
+}
+
+/* ---- Rapor penceresi ---- */
+let rp={kind:'musteri',id:'borclu',from:'',to:''};
+function repOptions(kind){
+  if(kind==='musteri')return[['borclu','— Tüm borçlu müşteriler (özet)'],['hepsi','— Tüm müşteriler (özet)']].concat(db.customers.slice().sort((a,b)=>a.name.localeCompare(b.name,'tr')).map(c=>[c.id,c.name]));
+  if(kind==='gider')return[['all','— Tüm giderler']].concat(expCatList().map(x=>[x,x]));
+  return[['all','— Tüm makina ve araçlar (özet)']].concat(db.machines.map(m=>[m.id,m.name]));
+}
+function buildReport(){
+  if(rp.kind==='musteri')return repMusteri(rp.id,rp.from,rp.to);
+  if(rp.kind==='gider')return repGider(rp.id,rp.from,rp.to);
+  return repMakina(rp.id,rp.from,rp.to);
+}
+function openReport(kind,id){
+  const d=periodDates();
+  rp={kind:kind||'musteri',id:id||null,from:d[0],to:d[1]};
+  drawReport();
+}
+function drawReport(){
+  const opts=repOptions(rp.kind);
+  if(!opts.some(o=>o[0]===rp.id))rp.id=opts[0][0];
+  const rep=buildReport();
+  const lab={musteri:'Müşteri / borçlu',gider:'Gider kalemi (kişi)',makina:'Makina / araç'}[rp.kind];
+  const has=rep&&rep.sections.some(s=>s.rows.length);
+  showModal(`<h3>📄 Rapor oluştur</h3>
+    <label>Rapor türü</label>
+    <select onchange="rp.kind=this.value;rp.id=null;drawReport()">
+      <option value="musteri" ${rp.kind==='musteri'?'selected':''}>Müşteri / borçlu raporu</option>
+      <option value="gider" ${rp.kind==='gider'?'selected':''}>Gider raporu</option>
+      <option value="makina" ${rp.kind==='makina'?'selected':''}>Makina raporu</option></select>
+    <label>${lab}</label>
+    <select onchange="rp.id=this.value;drawReport()">${opts.map(o=>`<option value="${esc(o[0])}" ${o[0]===rp.id?'selected':''}>${esc(o[1])}</option>`).join('')}</select>
+    <label>Başlangıç tarihi (boş = en baştan)</label><input type="date" value="${rp.from}" onchange="rp.from=this.value;drawReport()">
+    <label>Bitiş tarihi (boş = bugüne kadar)</label><input type="date" value="${rp.to}" onchange="rp.to=this.value;drawReport()">
+    <div class="card" style="margin:12px 0 0;background:#f9fafb"><b>${esc(rep?rep.title:'')}</b><div class="sub">${has?esc(rep.summary):'Bu seçimde kayıt yok.'}</div></div>
+    <div class="btns"><button class="btn f" ${has?'':'disabled'} onclick="runReport('pdf')">📄 PDF</button><button class="btn f g" ${has?'':'disabled'} onclick="runReport('xlsx')">📊 Excel</button></div>
+    <div class="btns" style="margin-top:8px"><button class="btn s f" onclick="closeModal()">Kapat</button></div>`);
+}
+async function runReport(kind){
+  const rep=buildReport();
+  if(!rep||!rep.sections.some(s=>s.rows.length)){alert('Bu seçimde kayıt yok.');return}
+  try{
+    const base=rep.file+'-'+today();
+    if(kind==='pdf')await dl(base+'.pdf',renderPdf(rep),'application/pdf');
+    else await dl(base+'.xlsx',renderXlsx(rep),'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  }catch(e){alert('Rapor oluşturulamadı: '+(e&&e.message||e))}
+}
+
+initPeriod();
+render();
+</script>
+</body>
+</html>
